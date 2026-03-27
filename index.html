@@ -4979,12 +4979,14 @@ function showUserPortal() {
     document.body.style.overflow = '';
     document.documentElement.classList.remove('td-open');
 
-    document.getElementById('view-user-portal').classList.add('active');
-    document.getElementById('view-admin-panel').classList.remove('active');
+    const _vup = document.getElementById('view-user-portal');
+    const _vap = document.getElementById('view-admin-panel');
+    if (_vap) _vap.classList.remove('active');
+    if (_vup) { _vup.style.display = ''; _vup.classList.add('active'); }
     const _t = document.getElementById('admin-mobile-topbar');
     if (_t) _t.style.display = 'none';
     document.querySelectorAll('.admin-section').forEach(s => s.classList.remove('active'));
-    syncTickets().then(() => updateUserUI());
+    syncTickets().then(() => updateUserUI()).catch(() => updateUserUI());
     updateUserUI();
     // เติมชื่อผู้แจ้งในฟอร์มอัตโนมัติ
     if (typeof UserSession !== 'undefined' && UserSession.isLoggedIn()) {
@@ -12454,12 +12456,6 @@ async function doUserLogin() {
     if (!res.ok && res.status !== 'ok') throw new Error(res.error || res.message || 'Login ไม่สำเร็จ');
 
     UserSession.set(res.token, res.user);
-
-    const ol = document.getElementById('login-overlay');
-    ol.classList.remove('visible');
-    ol.classList.add('hidden');
-    ol.style.display = 'none';
-
     showUserPortal();
     _updateUserPortalName(res.user);
 
