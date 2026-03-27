@@ -12856,5 +12856,312 @@ window.usersDoResetPassword = usersDoResetPassword;
 })();
 </script>
 
+<!-- ===================== AUTO LOGOUT (3 นาที) ===================== -->
+<style>
+  #auto-logout-warning {
+    display: none;
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 99999;
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border: 1.5px solid rgba(239,68,68,0.6);
+    border-radius: 18px;
+    padding: 18px 22px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(239,68,68,0.2);
+    min-width: 280px;
+    max-width: 320px;
+    animation: slideInWarning 0.35s cubic-bezier(.22,1,.36,1);
+    color: white;
+  }
+  #auto-logout-warning.show { display: block; }
+  @keyframes slideInWarning {
+    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  #auto-logout-warning .alw-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  #auto-logout-warning .alw-icon {
+    width: 36px; height: 36px;
+    background: rgba(239,68,68,0.2);
+    border: 1.5px solid rgba(239,68,68,0.5);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+    animation: alwIconPulse 1s ease-in-out infinite;
+  }
+  @keyframes alwIconPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+    50%     { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+  }
+  #auto-logout-warning .alw-title {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: #fca5a5;
+    line-height: 1.2;
+  }
+  #auto-logout-warning .alw-sub {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.5);
+  }
+  #auto-logout-warning .alw-countdown {
+    text-align: center;
+    margin: 8px 0 14px;
+  }
+  #auto-logout-warning .alw-countdown-num {
+    font-size: 2.6rem;
+    font-weight: 800;
+    font-family: 'Orbitron', monospace;
+    color: #f87171;
+    line-height: 1;
+    transition: color 0.3s;
+  }
+  #auto-logout-warning .alw-countdown-num.urgent { color: #ef4444; animation: urgentBlink 0.5s ease-in-out infinite; }
+  @keyframes urgentBlink { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  #auto-logout-warning .alw-countdown-label {
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.4);
+    margin-top: 2px;
+  }
+  #auto-logout-warning .alw-bar-wrap {
+    background: rgba(255,255,255,0.08);
+    border-radius: 6px;
+    height: 5px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  #auto-logout-warning .alw-bar {
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #ef4444, #f97316);
+    transition: width 1s linear;
+  }
+  #auto-logout-warning .alw-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    font-family: 'Sarabun', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  #auto-logout-warning .alw-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.4); }
+</style>
+
+<!-- Warning popup -->
+<div id="auto-logout-warning" role="alert" aria-live="assertive">
+  <div class="alw-header">
+    <div class="alw-icon">⚠️</div>
+    <div>
+      <div class="alw-title">ระบบกำลังจะออกจากระบบ</div>
+      <div class="alw-sub">ตรวจไม่พบการใช้งาน</div>
+    </div>
+  </div>
+  <div class="alw-countdown">
+    <div class="alw-countdown-num" id="alw-secs">60</div>
+    <div class="alw-countdown-label">วินาทีที่เหลือ</div>
+  </div>
+  <div class="alw-bar-wrap">
+    <div class="alw-bar" id="alw-bar" style="width:100%"></div>
+  </div>
+  <button class="alw-btn" onclick="autoLogoutReset()">
+    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+    ยังคงใช้งานอยู่
+  </button>
+</div>
+
+<script>
+(function() {
+  var IDLE_TIMEOUT  = 5 * 60 * 1000;   // 5 นาที (ms)
+  var WARN_BEFORE   = 60 * 1000;        // แสดง warning ก่อน 60 วินาที
+  var _idleTimer    = null;
+  var _countdownTimer = null;
+  var _warnShown    = false;
+  var _countdownSecs = 60;
+  var _active       = false; // true = ผู้ใช้ login อยู่
+
+  // --- ตรวจว่า login อยู่หรือไม่ ---
+  function isLoggedIn() {
+    var ol = document.getElementById('login-overlay');
+    if (!ol) return false;
+    // ถ้า login-overlay visible = ยังไม่ได้ login
+    if (ol.classList.contains('visible') && !ol.classList.contains('hidden')) return false;
+    // ตรวจ view ที่แสดงอยู่
+    var userPortal  = document.getElementById('view-user-portal');
+    var adminPanel  = document.getElementById('view-admin-panel');
+    var userActive  = userPortal  && userPortal.classList.contains('active');
+    var adminActive = adminPanel  && adminPanel.classList.contains('active');
+    return userActive || adminActive;
+  }
+
+  // --- บังคับ logout ---
+  function forceLogout() {
+    hideWarning();
+    clearTimers();
+    _active = false;
+
+    // ลอง user logout ก่อน ถ้า user portal active
+    var userPortal = document.getElementById('view-user-portal');
+    var adminPanel = document.getElementById('view-admin-panel');
+
+    if (adminPanel && adminPanel.classList.contains('active')) {
+      // Admin: clear session แล้วกลับ login โดยไม่ confirm
+      if (typeof sessionStorage !== 'undefined') {
+        try { sessionStorage.removeItem('it_admin_session'); } catch(e){}
+        try { sessionStorage.removeItem('it_current_user');  } catch(e){}
+      }
+      if (typeof closeAdminDrawer  === 'function') closeAdminDrawer();
+      if (typeof closeMobileDrawer === 'function') closeMobileDrawer();
+      // ซ่อน admin panel
+      adminPanel.classList.remove('active');
+      // แสดง login overlay
+      var ol = document.getElementById('login-overlay');
+      if (ol) {
+        ol.classList.remove('hidden');
+        ol.classList.add('visible');
+        ol.style.display = '';
+      }
+      setTimeout(function() {
+        if (typeof showUserLoginPanel === 'function') showUserLoginPanel();
+      }, 80);
+    } else if (userPortal && userPortal.classList.contains('active')) {
+      // User portal: clear session แล้วกลับ login โดยไม่ confirm
+      if (typeof UserSession !== 'undefined' && typeof UserSession.clear === 'function') UserSession.clear();
+      if (typeof sessionStorage !== 'undefined') {
+        try { sessionStorage.removeItem('it_current_user'); } catch(e){}
+      }
+      userPortal.classList.remove('active');
+      var ol = document.getElementById('login-overlay');
+      if (ol) {
+        ol.classList.remove('hidden');
+        ol.classList.add('visible');
+        ol.style.display = '';
+      }
+      setTimeout(function() {
+        if (typeof showUserLoginPanel === 'function') showUserLoginPanel();
+      }, 80);
+    }
+  }
+
+  // --- แสดง warning countdown ---
+  function showWarning() {
+    if (_warnShown) return;
+    _warnShown = true;
+    _countdownSecs = 60;
+    var box  = document.getElementById('auto-logout-warning');
+    var num  = document.getElementById('alw-secs');
+    var bar  = document.getElementById('alw-bar');
+    if (!box) return;
+    box.classList.add('show');
+    num.textContent = _countdownSecs;
+    num.classList.remove('urgent');
+    if (bar) bar.style.width = '100%';
+
+    _countdownTimer = setInterval(function() {
+      _countdownSecs--;
+      if (num) {
+        num.textContent = _countdownSecs;
+        if (_countdownSecs <= 10) num.classList.add('urgent');
+      }
+      if (bar) bar.style.width = Math.max(0, (_countdownSecs / 60) * 100) + '%';
+      if (_countdownSecs <= 0) {
+        clearInterval(_countdownTimer);
+        forceLogout();
+      }
+    }, 1000);
+  }
+
+  function hideWarning() {
+    _warnShown = false;
+    clearInterval(_countdownTimer);
+    var box = document.getElementById('auto-logout-warning');
+    if (box) box.classList.remove('show');
+    var num = document.getElementById('alw-secs');
+    if (num) num.classList.remove('urgent');
+  }
+
+  function clearTimers() {
+    clearTimeout(_idleTimer);
+    clearInterval(_countdownTimer);
+  }
+
+  // --- รีเซ็ต idle timer เมื่อมี activity ---
+  function resetIdleTimer() {
+    if (!_active) return;
+    hideWarning();
+    clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(function() {
+      if (!isLoggedIn()) return;
+      showWarning();
+    }, IDLE_TIMEOUT - WARN_BEFORE);
+  }
+
+  // --- เริ่ม / หยุด monitoring ---
+  window.autoLogoutStart = function() {
+    _active = true;
+    resetIdleTimer();
+  };
+  window.autoLogoutStop = function() {
+    _active = false;
+    hideWarning();
+    clearTimers();
+  };
+  // ปุ่ม "ยังคงใช้งานอยู่"
+  window.autoLogoutReset = function() {
+    if (!isLoggedIn()) return;
+    resetIdleTimer();
+  };
+
+  // --- ผูก events ทุก interaction ---
+  var EVENTS = ['mousemove','mousedown','keydown','touchstart','touchmove','scroll','click','wheel'];
+  EVENTS.forEach(function(ev) {
+    document.addEventListener(ev, function() {
+      if (_active) resetIdleTimer();
+    }, { passive: true });
+  });
+
+  // --- คอย monitor login-overlay เพื่อ start/stop อัตโนมัติ ---
+  document.addEventListener('DOMContentLoaded', function() {
+    var ol = document.getElementById('login-overlay');
+    if (!ol) return;
+
+    function checkState() {
+      var loggedIn = isLoggedIn();
+      if (loggedIn && !_active) {
+        window.autoLogoutStart();
+      } else if (!loggedIn && _active) {
+        window.autoLogoutStop();
+      }
+    }
+
+    // ตรวจสถานะแรก
+    checkState();
+
+    // Observer บน login-overlay
+    var olObs = new MutationObserver(checkState);
+    olObs.observe(ol, { attributes: true, attributeFilter: ['class'] });
+
+    // Observer บน view-user-portal และ view-admin-panel
+    ['view-user-portal','view-admin-panel'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        var obs = new MutationObserver(checkState);
+        obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+      }
+    });
+  });
+})();
+</script>
+
 </body>
 </html>
