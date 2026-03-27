@@ -5181,10 +5181,17 @@ function adminLogout() {
     // เคลียร์ค่า input login ทั้งหมด
     const clearIds = ['user-login-email','user-login-password','login-username','login-password'];
     clearIds.forEach(function(id){ const el = document.getElementById(id); if(el) el.value = ''; });
-    // ปิด drawer/overlay ทั้งหมดก่อนกลับ user portal
-    closeAdminDrawer();
-    closeMobileDrawer();
-    showUserPortal();
+    // ปิด drawer/overlay ทั้งหมด
+    if (typeof closeAdminDrawer  === 'function') closeAdminDrawer();
+    if (typeof closeMobileDrawer === 'function') closeMobileDrawer();
+    // ซ่อนทุก view แล้วกลับ login โดยตรง (ไม่ผ่าน showUserPortal เพราะ session ถูกล้างแล้ว)
+    document.getElementById('view-admin-panel').classList.remove('active');
+    document.getElementById('view-user-portal').classList.remove('active');
+    const ol = document.getElementById('login-overlay');
+    ol.classList.remove('hidden');
+    ol.classList.add('visible');
+    ol.style.display = '';
+    setTimeout(function(){ if (typeof showUserLoginPanel === 'function') showUserLoginPanel(); }, 50);
 }
 
 function userLogout() {
